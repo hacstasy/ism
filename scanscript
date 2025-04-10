@@ -1,6 +1,6 @@
 #!/bin/bash
 # Email alert cron job script for ClamAV
-# Email notifications in case of infections found will be sent
+# Email notifications in case of infections found or NO infections will be sent
 
 # Directories to scan
 SCAN_DIR="/home /tmp /var"
@@ -10,39 +10,52 @@ LOG_FILE="/var/log/clamav/auto_clam_scan.log"
 # AGGRESSIVE=1
 # Uncomment to have scan not remove files
 AGGRESSIVE=0
-# Email Subject
-SUBJECT="Potential Threat Detected"
+# Email Subject for Infected Files
+SUBJECT_INFECTED="Potential Threat Detected"
+# Email Subject for No Infections
+SUBJECT_NO_THREAT="No Threats Detected"
 # Email To
 EMAIL="pkakra@fanshaweonline.ca"
 # Email From
 EMAIL_FROM="tempsomething2k23@gmail.com"
 
+# Function to send email notification
+send_email() {
+    local subject="$1"
+    local message="$2"
+
+    EMAILMESSAGE=$(mktemp /tmp/virus-alert.XXXXX)
+    echo "To: ${EMAIL}" > ${EMAILMESSAGE}
+    echo "From: ${EMAIL_FROM}" >> ${EMAILMESSAGE}
+    echo "Subject: ${subject}" >> ${EMAILMESSAGE}
+    echo "Importance: High" >> ${EMAILMESSAGE}
+    echo "X-Priority: 1" >> ${EMAILMESSAGE}
+    echo "$message" >> ${EMAILMESSAGE}
+    sendmail -t < ${EMAILMESSAGE}
+}
+
 # Function to check for infections and send an email alert
 check_scan() {
-    # If there were infected files detected, send email alert
-    if [ $(tail -n 12 ${LOG_FILE} | grep -i 'Infected' | grep -v '0' | wc -l) -ne 0 ]; then
-        # Count number of infections
+    # Check for infected files in the scan log
+    INFECTED_COUNT=$(tail -n 12 ${LOG_FILE} | grep -i 'Infected' | grep -v '0' | wc -l)
+
+    if [ $INFECTED_COUNT -ne 0 ]; then
+        # Infections found, send email for detected threats
         SCAN_RESULTS=$(tail -n 10 $LOG_FILE | grep 'Infected files')
         INFECTIONS=$(echo $SCAN_RESULTS | awk '{print $NF}')
         
-        # Create temporary email message
-        EMAILMESSAGE=$(mktemp /tmp/virus-alert.XXXXX)
-        echo "To: ${EMAIL}" > ${EMAILMESSAGE}
-        echo "From: ${EMAIL_FROM}" >> ${EMAILMESSAGE}
-        echo "Subject: ${SUBJECT}" >> ${EMAILMESSAGE}
-        echo "Importance: High" >> ${EMAILMESSAGE}
-        echo "X-Priority: 1" >> ${EMAILMESSAGE}
-        echo "***A Scan was carried out by pkakra***" >> ${EMAILMESSAGE}
-
-        # Add scan results based on aggressive flag
+        # Construct the message with scan results
+        MESSAGE="***A Scan was carried out by pkakra***\n"
         if [ $AGGRESSIVE -eq 1 ]; then
-            echo -e "\n$(tail -n $((10 + INFECTIONS * 2)) $LOG_FILE)" >> ${EMAILMESSAGE}
+            MESSAGE+="\n$(tail -n $((10 + INFECTIONS * 2)) $LOG_FILE)"
         else
-            echo -e "\n$(tail -n $((10 + INFECTIONS)) $LOG_FILE)" >> ${EMAILMESSAGE}
+            MESSAGE+="\n$(tail -n $((10 + INFECTIONS)) $LOG_FILE)"
         fi
-
-        # Send the email
-        sendmail -t < ${EMAILMESSAGE}
+        send_email "$SUBJECT_INFECTED" "$MESSAGE"
+    else
+        # No infections found, send email for no threats detected
+        MESSAGE="***A Scan was carried out by pkakra***\n\nNo infections were detected during the scan."
+        send_email "$SUBJECT_NO_THREAT" "$MESSAGE"
     fi
 }
 
@@ -53,5 +66,5 @@ else
     /usr/bin/clamscan -ri $SCAN_DIR >> $LOG_FILE
 fi
 
-# Call the check_scan function to send email if infections are found
+# Call the check_scan function to send email
 check_scan
