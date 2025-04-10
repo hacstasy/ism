@@ -13,9 +13,9 @@ AGGRESSIVE=0
 # Email Subject
 SUBJECT="Potential Threat Detected"
 # Email To
-EMAIL="FOLusername@fanshaweonline.ca"
+EMAIL="pkakra@fanshaweonline.ca"
 # Email From
-EMAIL_FROM="YOUR_TEST_GMAIL_ACCOUNT"
+EMAIL_FROM="tempsomething2k23@gmail.com"
 
 # Function to check for infections and send an email alert
 check_scan() {
