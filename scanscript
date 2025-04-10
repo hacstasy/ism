@@ -1,70 +1,67 @@
 #!/bin/bash
 # Email alert cron job script for ClamAV
-# Email notifications in case of infections found or NO infections will be sent
+# Email notifications in all cases (infected or clean)
 
-# Directories to scan
 SCAN_DIR="/home /tmp /var"
-# Location of log file
 LOG_FILE="/var/log/clamav/auto_clam_scan.log"
-# Uncomment to have scan remove files
-# AGGRESSIVE=1
-# Uncomment to have scan not remove files
 AGGRESSIVE=0
-# Email Subject for Infected Files
 SUBJECT_INFECTED="Potential Threat Detected"
-# Email Subject for No Infections
-SUBJECT_NO_THREAT="No Threats Detected"
-# Email To
-EMAIL="pkakra@fanshaweonline.ca"
-# Email From
+SUBJECT_NO_THREAT="Scan Completed: No Threats Detected"
+EMAIL="p_kakra@fanshaweonline.ca"
 EMAIL_FROM="tempsomething2k23@gmail.com"
 
-# Function to send email notification
-send_email() {
-    local subject="$1"
-    local message="$2"
+# Capture time
+START_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 
-    EMAILMESSAGE=$(mktemp /tmp/virus-alert.XXXXX)
-    echo "To: ${EMAIL}" > ${EMAILMESSAGE}
-    echo "From: ${EMAIL_FROM}" >> ${EMAILMESSAGE}
-    echo "Subject: ${subject}" >> ${EMAILMESSAGE}
-    echo "Importance: High" >> ${EMAILMESSAGE}
-    echo "X-Priority: 1" >> ${EMAILMESSAGE}
-    echo "$message" >> ${EMAILMESSAGE}
-    sendmail -t < ${EMAILMESSAGE}
-}
-
-# Function to check for infections and send an email alert
-check_scan() {
-    # Check for infected files in the scan log
-    INFECTED_COUNT=$(tail -n 12 ${LOG_FILE} | grep -i 'Infected' | grep -v '0' | wc -l)
-
-    if [ $INFECTED_COUNT -ne 0 ]; then
-        # Infections found, send email for detected threats
-        SCAN_RESULTS=$(tail -n 10 $LOG_FILE | grep 'Infected files')
-        INFECTIONS=$(echo $SCAN_RESULTS | awk '{print $NF}')
-        
-        # Construct the message with scan results
-        MESSAGE="***A Scan was carried out by pkakra***\n"
-        if [ $AGGRESSIVE -eq 1 ]; then
-            MESSAGE+="\n$(tail -n $((10 + INFECTIONS * 2)) $LOG_FILE)"
-        else
-            MESSAGE+="\n$(tail -n $((10 + INFECTIONS)) $LOG_FILE)"
-        fi
-        send_email "$SUBJECT_INFECTED" "$MESSAGE"
-    else
-        # No infections found, send email for no threats detected
-        MESSAGE="***A Scan was carried out by pkakra***\n\nNo infections were detected during the scan."
-        send_email "$SUBJECT_NO_THREAT" "$MESSAGE"
-    fi
-}
-
-# Run ClamAV scan based on aggressive setting
+# Run scan and capture full output
 if [ $AGGRESSIVE -eq 1 ]; then
-    /usr/bin/clamscan -ri --remove $SCAN_DIR >> $LOG_FILE
+    SCAN_OUTPUT=$(clamscan -ri --remove $SCAN_DIR)
 else
-    /usr/bin/clamscan -ri $SCAN_DIR >> $LOG_FILE
+    SCAN_OUTPUT=$(clamscan -ri $SCAN_DIR)
 fi
 
-# Call the check_scan function to send email
-check_scan
+# Save to log
+echo "$SCAN_OUTPUT" >> "$LOG_FILE"
+END_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+
+# Parse summary info
+ENGINE_VERSION=$(clamscan -V | awk '{print $2}')
+KNOWN_VIRUSES=$(clamscan -V | awk '{print $NF}')
+INFECTED_FILES=$(echo "$SCAN_OUTPUT" | grep "Infected files:" | awk '{print $NF}')
+SCANNED_FILES=$(echo "$SCAN_OUTPUT" | grep "Scanned files:" | awk '{print $NF}')
+SCANNED_DIRS=$(echo "$SCAN_OUTPUT" | grep "Scanned directories:" | awk '{print $NF}')
+DATA_SCANNED=$(echo "$SCAN_OUTPUT" | grep "Data scanned:" | cut -d':' -f2 | xargs)
+DATA_READ=$(echo "$SCAN_OUTPUT" | grep "Data read:" | cut -d':' -f2 | xargs)
+SCAN_TIME=$(echo "$SCAN_OUTPUT" | grep "Time:" | cut -d':' -f2- | xargs)
+
+# Construct message body
+MESSAGE="*** A Scan was carried out by pkakra ***\n
+Known viruses: ${KNOWN_VIRUSES}
+Engine version: ${ENGINE_VERSION}
+Scanned directories: ${SCANNED_DIRS}
+Scanned files: ${SCANNED_FILES}
+Infected files: ${INFECTED_FILES}
+Data scanned: ${DATA_SCANNED}
+Data read: ${DATA_READ}
+Time: ${SCAN_TIME}
+Start Date: ${START_TIME}
+End Date: ${END_TIME}
+"
+
+# Choose subject
+if [ "$INFECTED_FILES" -ne 0 ]; then
+    SUBJECT="$SUBJECT_INFECTED"
+else
+    SUBJECT="$SUBJECT_NO_THREAT"
+fi
+
+# Send email
+EMAILMESSAGE=$(mktemp /tmp/virus-alert.XXXXX)
+echo "To: ${EMAIL}" > "${EMAILMESSAGE}"
+echo "From: ${EMAIL_FROM}" >> "${EMAILMESSAGE}"
+echo "Subject: ${SUBJECT}" >> "${EMAILMESSAGE}"
+echo "Importance: High" >> "${EMAILMESSAGE}"
+echo "X-Priority: 1" >> "${EMAILMESSAGE}"
+echo -e "$MESSAGE" >> "${EMAILMESSAGE}"
+
+sendmail -t < "${EMAILMESSAGE}"
